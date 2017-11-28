@@ -160,12 +160,12 @@ class DripBase(object):
         First collect all filter/exclude kwargs and apply any annotations.
         Then apply all filters at once, and all excludes at once.
         """
+        logging.info("Use objects: %s" % qs)
         clauses = {
             'filter': [],
             'exclude': []}
 
         for rule in self.drip_model.queryset_rules.all():
-
             clause = clauses.get(rule.method_type, clauses['filter'])
 
             kwargs = rule.filter_kwargs(qs, now=self.now)
@@ -175,8 +175,8 @@ class DripBase(object):
 
         if clauses['exclude']:
             qs = qs.exclude(functools.reduce(operator.or_, clauses['exclude']))
+        logging.info("Clauses: %s" % clauses)
         qs = qs.filter(*clauses['filter'])
-
         return qs
 
     ##################
@@ -244,7 +244,7 @@ class DripBase(object):
                     count += 1
             except Exception as e:
                 logging.error("Failed to send drip %s to user %s: %s" % (self.drip_model.id, user, e))
-
+        logging.info("Total send: %d emails." %count)
         return count
 
 
