@@ -59,7 +59,7 @@ class SentDrip(models.Model):
     drip = models.ForeignKey('drip.Drip', related_name='sent_drips')
     user = models.ForeignKey(
         getattr(
-            settings, 'ZEPHYRUS_DRIP_MODEL', 
+            settings, 'ZEPHYRUS_AUTORESPONDER_MODEL', 
             getattr(settings, 'AUTH_USER_MODEL', 'auth.User')), 
         related_name='sent_drips')
 
