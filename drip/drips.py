@@ -4,7 +4,6 @@ import functools
 from django.conf import settings
 from django.db.models import Q
 from django.template import Context, Template
-from django.utils.importlib import import_module
 from django.core.mail import EmailMultiAlternatives
 from django.utils.html import strip_tags
 
@@ -17,7 +16,13 @@ except ImportError:
     from datetime import datetime
     conditional_now = datetime.now
 
+from Iuppiter.DjangoUtil import DJANGO_VERSION
 
+if DJANGO_VERSION >= 10900: # django >= 1.11
+    from django.utils.module_loading import import_module
+else:
+    from django.utils.importlib import import_module
+    
 import logging
 
 
