@@ -28,7 +28,7 @@ INSTALLED_APPS = (
     'credits',
 )
 
-MIDDLEWARE_CLASSES = (
+MIDDLEWARE = (
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -36,6 +36,8 @@ MIDDLEWARE_CLASSES = (
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 )
+
+
 
 USE_TZ = True
 TIME_ZONE = 'UTC'
@@ -46,3 +48,14 @@ ROOT_URLCONF = 'test_urls'
 
 STATIC_URL = '/static/'
 STATICFILES_DIRS = ()
+
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': ['django.contrib.auth.context_processors.auth']
+        }
+    },
+]
+

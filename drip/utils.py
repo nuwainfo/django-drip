@@ -2,11 +2,10 @@ import sys
 
 from django.db import models
 from django.db.models import ForeignKey, OneToOneField, ManyToManyField
-# try:
-#    from django.db.models.related import RelatedObject
-# except:
-#   # django 1.8 +
-from django.db.models.fields.related import ForeignObjectRel
+try:
+    from django.db.models.fields.related import ManyToOneRel
+except ImportError:
+    from django.db.models.related import RelatedObject as ManyToOneRel
 
 # taking a nod from python-requests and skipping six
 _ver = sys.version_info
@@ -21,7 +20,7 @@ elif is_py3:
     unicode = str
 
 
-def get_fields(Model,
+def get_fields(Model, 
                parent_field="",
                model_stack=None,
                stack_limit=2,
@@ -29,7 +28,7 @@ def get_fields(Model,
     """
     Given a Model, return a list of lists of strings with important stuff:
     ...
-    ['test_user__user__customuser', 'customuser', 'User', 'RelatedObject']
+    ['test_user__user__customuser', 'customuser', 'User', 'ManyToOneRel']
     ['test_user__unique_id', 'unique_id', 'TestUser', 'CharField']
     ['test_user__confirmed', 'confirmed', 'TestUser', 'BooleanField']
     ...
@@ -40,12 +39,10 @@ def get_fields(Model,
     if model_stack is None:
         model_stack = []
 
-    # github.com/omab/python-social-auth/commit/d8637cec02422374e4102231488481170dc51057
     if isinstance(Model, basestring):
         app_label, model_name = Model.split('.')
         Model = models.get_model(app_label, model_name)
 
-    #fields = Model._meta.fields + Model._meta.many_to_many + tuple(Model._meta.get_all_related_objects())
     fields = Model._meta.get_fields()
     model_stack.append(Model)
 
@@ -71,20 +68,13 @@ def get_fields(Model,
     for field in fields:
         field_name = field.name
 
-        # if instance(field, Man)
-
-        if isinstance(field, ForeignObjectRel):
-            # from pdb import set_trace
-            # set_trace()
-            # print (field, type(field))
+        if isinstance(field, ManyToOneRel):
             field_name = field.field.related_query_name()
 
         if parent_field:
             full_field = "__".join([parent_field, field_name])
         else:
             full_field = field_name
-
-        # print (field, field_name, full_field)
 
         if len([True for exclude in excludes if (exclude in full_field)]):
             continue
@@ -93,22 +83,14 @@ def get_fields(Model,
         out_fields.append([full_field, field_name, Model, field.__class__])
 
         if not stop_recursion and \
-                isinstance(field, ForeignObjectRel):
-                # (isinstance(field, ForeignKey) or isinstance(field, OneToOneField) or \
-                # isinstance(field, RelatedObject) or isinstance(field, ManyToManyField)):
+                (isinstance(field, ForeignKey) or isinstance(field, OneToOneField) or \
+                isinstance(field, ManyToOneRel) or isinstance(field, ManyToManyField)):
 
-            # from pdb import set_trace
-            # set_trace()
-            if not isinstance(field, ForeignObjectRel):
+            if isinstance(field, ManyToOneRel):
                 RelModel = field.model
+                #field_names.extend(get_fields(RelModel, full_field, True))
             else:
                 RelModel = field.related_model
-            # print (RelModel)
-            # if isinstance(field, RelatedObject):
-            #     RelModel = field.model
-            #     #field_names.extend(get_fields(RelModel, full_field, True))
-            # else:
-            #     RelModel = field.related.parent_model
 
             out_fields.extend(get_fields(RelModel, full_field, list(model_stack)))
 

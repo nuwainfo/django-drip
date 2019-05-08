@@ -1,9 +1,10 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
+from django.contrib.auth.models import User
 from django.test import TestCase
 from django.test.client import RequestFactory
 from django.core.exceptions import ValidationError
-from django.core.urlresolvers import resolve, reverse
+from django.urls import resolve, reverse
 from django.core import mail
 from django.conf import settings
 from django.utils import timezone
@@ -12,7 +13,7 @@ from drip.models import Drip, SentDrip, QuerySetRule
 from drip.drips import DripBase, DripMessage
 from drip.utils import get_user_model, unicode
 
-from credits.models import Profile
+from credits.models import Profile, Account
 
 
 class RulesTestCase(TestCase):
@@ -25,6 +26,10 @@ class RulesTestCase(TestCase):
 
     def test_valid_rule(self):
         rule = QuerySetRule(drip=self.drip, field_name='date_joined', lookup_type='lte', field_value='now-60 days')
+        rule.clean()
+
+    def test_positive_days(self):
+        rule = QuerySetRule(drip=self.drip, field_name='date_joined', lookup_type='lte', field_value='now+60 days')
         rule.clean()
 
     def test_bad_field_name(self):
@@ -118,11 +123,24 @@ class DripsTestCase(TestCase):
     ### TEST DRIPS ###
     ##################
 
+    def test_no_subject_template_drip(self):
+        d = Drip.objects.create(
+            name='A while ago',
+            body_html_template='grate! fanx'
+        )
+        message = DripMessage(d, self.User.objects.first())
+        self.assertEqual(message.subject, '')
+
     def test_backwards_drip_class(self):
+        Drip.objects.create(
+            name='A Custom Week Ago',
+            subject_template='HELLO {{ user.username }}',
+            body_html_template='KETTEHS ROCK!'
+        )
         for drip in Drip.objects.all():
             self.assertTrue(issubclass(drip.drip.__class__, DripBase))
 
-    def build_joined_date_drip(self, shift_one=7, shift_two=8):
+    def build_joined_date_drip(self, shift_one=7, shift_two=8, when='now'):
         model_drip = Drip.objects.create(
             name='A Custom Week Ago',
             subject_template='HELLO {{ user.username }}',
@@ -132,13 +150,13 @@ class DripsTestCase(TestCase):
             drip=model_drip,
             field_name='date_joined',
             lookup_type='lt',
-            field_value='now-{0} days'.format(shift_one)
+            field_value='{0}-{1} days'.format(when, shift_one)
         )
         QuerySetRule.objects.create(
             drip=model_drip,
             field_name='date_joined',
             lookup_type='gte',
-            field_value='now-{0} days'.format(shift_two)
+            field_value='{0}-{1} days'.format(when, shift_two)
         )
         return model_drip
 
@@ -168,6 +186,31 @@ class DripsTestCase(TestCase):
         self.assertEqual(2, drip.get_queryset().count()) # 2 people meet the criteria
         drip.prune()
         self.assertEqual(0, drip.get_queryset().count()) # everyone is pruned
+
+    def test_today_drip(self):
+        model_drip = self.build_joined_date_drip(when='today')
+        drip = model_drip.drip
+
+        # ensure we are starting from a blank slate
+        self.assertEqual(2, drip.get_queryset().count()) # 2 people meet the criteria
+        drip.prune()
+        self.assertEqual(2, drip.get_queryset().count()) # no one is pruned, never sent before
+        self.assertEqual(0, SentDrip.objects.count()) # confirm nothing sent before
+
+        # send the drip
+        drip.send()
+        self.assertEqual(2, SentDrip.objects.count()) # got sent
+
+        for sent in SentDrip.objects.all():
+            self.assertIn('HELLO', sent.subject)
+            self.assertIn('KETTEHS ROCK', sent.body)
+
+        # subsequent runs reflect previous activity
+        drip = Drip.objects.get(id=model_drip.id).drip
+        self.assertEqual(2, drip.get_queryset().count()) # 2 people meet the criteria
+        drip.prune()
+        self.assertEqual(0, drip.get_queryset().count()) # everyone is pruned
+
 
     def test_custom_short_term_drip(self):
         model_drip = self.build_joined_date_drip(shift_one=3, shift_two=4)
@@ -208,6 +251,37 @@ class DripsTestCase(TestCase):
         for count, shifted_drip in zip([0, 1, 1, 1, 1], drip.walk(into_past=3, into_future=2)):
             self.assertEqual(count, shifted_drip.get_queryset().count())
 
+    def test_filter_by_self(self):
+        """
+        Everyone belongs to the same account. filter to email just the owner.
+        """
+        account = Account.objects.create(
+            owner=User.objects.earliest('date_joined')
+        )
+        Profile.objects.update(account=account)
+
+        model_drip = Drip.objects.create(
+            name='A Custom Week Ago',
+            subject_template='HELLO {{ user.username }}',
+            body_html_template='KETTEHS ROCK!'
+        )
+
+        QuerySetRule.objects.create(
+            drip=model_drip,
+            field_name='profile__account__owner_id',
+            lookup_type='exact',
+            field_value='F_id'
+        )
+
+        QuerySetRule.objects.create(
+            drip=model_drip,
+            field_name='profile__account__owner_id',
+            lookup_type='exact',
+            field_value='F_id'
+        )
+
+        self.assertEqual(1, model_drip.drip.get_queryset().count())
+
     def test_exclude_and_include(self):
         model_drip = Drip.objects.create(
             name='A Custom Week Ago',
@@ -243,7 +317,7 @@ class DripsTestCase(TestCase):
             drip=model_drip,
             field_name='date_joined',
             lookup_type='lte',
-            field_value=(timezone.now() - timedelta(days=8)).strftime('%Y-%m-%d %H:%M:%S')
+            field_value=(timezone.now() - timedelta(days=8)).isoformat()
         )
         drip = model_drip.drip
 
@@ -260,7 +334,9 @@ class DripsTestCase(TestCase):
             drip=model_drip,
             field_name='date_joined',
             lookup_type='gte',
-            field_value=(timezone.now() - timedelta(days=1)).strftime('%Y-%m-%d 00:00:00')
+            field_value=(timezone.now() - timedelta(days=1)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ).isoformat()
         )
         drip = model_drip.drip
 
@@ -285,7 +361,7 @@ class DripsTestCase(TestCase):
             drip=model_drip,
             field_name='date_joined',
             lookup_type='gte',
-            field_value=(timezone.now() - timedelta(days=1)).strftime('%Y-%m-%d 00:00:00')
+            field_value=(timezone.now() - timedelta(days=1)).isoformat()
         )
 
         # then get it's admin view.
@@ -378,7 +454,7 @@ class DripsTestCase(TestCase):
 
         qs = qsr.apply_any_annotation(model_drip.drip.get_queryset())
 
-        self.assertEqual(list(qs.query.aggregate_select.keys()), ['num_profile_user_groups'])
+        self.assertEqual(list(qs.query.annotation_select.keys()), ['num_profile_user_groups'])
 
     def test_apply_multiple_rules_with_aggregation(self):
 
@@ -399,14 +475,62 @@ class DripsTestCase(TestCase):
             drip=model_drip,
             field_name='date_joined',
             lookup_type='gte',
-            field_value=(timezone.now() - timedelta(days=1)).strftime('%Y-%m-%d 00:00:00')
+            field_value=(timezone.now() - timedelta(days=1)).isoformat()
         )
 
 
         qsr.clean()
         qs = model_drip.drip.apply_queryset_rules(model_drip.drip.get_queryset())
 
-        self.assertEqual(qs.count(), 4)
+        self.assertEqual(qs.count(), self.User.objects.filter(
+            date_joined__gte=timezone.now() - timedelta(days=1)
+        ).count())
+
+    # test duplicate in admin
+    def test_save_as_admin_functionality(self):
+
+        model = Drip.objects.create(
+            name='A Custom Week Ago',
+            subject_template='HELLO {{ user.username }}',
+            body_html_template='KETTEHS ROCK!'
+        )
+
+        qsr = QuerySetRule.objects.create(
+            drip=model,
+            field_name='profile__user__groups__count',
+            lookup_type='exact',
+            field_value='0'
+        )
+
+        superuser = User.objects.create_superuser(
+            username='super', password='secret', email='super@example.com'
+        )
+        data = {
+            '_saveasnew': 'Save+as+new',
+            'body_html_template': model.body_html_template,
+            'name': model.name + '1',
+            'message_class': 'default',
+            'queryset_rules-INITIAL_FORMS': 1,
+            'queryset_rules-TOTAL_FORMS': 1,
+            'queryset_rules-0-drip': model.id,
+            'queryset_rules-0-id': qsr.id,
+            'queryset_rules-0-lookup_type': qsr.lookup_type,
+            'queryset_rules-0-field_value': qsr.field_value,
+            'queryset_rules-0-field_name': qsr.field_name,
+            'queryset_rules-0-method_type': 'filter',
+        }
+        self.client.force_login(superuser)
+        response = self.client.post(
+            reverse('admin:drip_drip_change', args=(model.pk,)), data
+        )
+        self.assertEqual(response.status_code, 302)
+
+        newest = Drip.objects.latest('lastchanged')
+        self.assertNotEqual(newest.id, model.id)
+        self.assertNotEqual(
+            newest.queryset_rules.first().id,
+            model.queryset_rules.first().id,
+        )
 
 
 # Used by CustomMessagesTest

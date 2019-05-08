@@ -1,16 +1,13 @@
-from datetime import datetime, timedelta
-import random
+from datetime import timedelta
 
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.conf import settings
-from django.utils.functional import cached_property
+from django.utils.dateparse import parse_duration
+from django.utils import timezone
 
 from drip.utils import get_user_model
 
-# just using this to parse, but totally insane package naming...
-# https://bitbucket.org/schinckel/django-timedelta-field/
-import timedelta as djangotimedelta
 
 class Drip(models.Model):
     date = models.DateTimeField(auto_now_add=True)
@@ -28,6 +25,8 @@ class Drip(models.Model):
         help_text='Set a custom from email.')
     from_email_name = models.CharField(max_length=150, null=True, blank=True,
         help_text="Set a name for a custom from email.")
+    reply_to = models.EmailField(null=True, blank=True,
+        help_text='Set a custom reply-to email.')
     subject_template = models.TextField(null=True, blank=True)
     body_html_template = models.TextField(null=True, blank=True,
         help_text='You will have settings and user in the context.')
@@ -41,6 +40,7 @@ class Drip(models.Model):
                         name=self.name,
                         from_email=self.from_email if self.from_email else None,
                         from_email_name=self.from_email_name if self.from_email_name else None,
+                        reply_to=self.reply_to if self.reply_to else None,
                         subject_template=self.subject_template if self.subject_template else None,
                         body_template=self.body_html_template if self.body_html_template else None)
         return drip
@@ -49,28 +49,20 @@ class Drip(models.Model):
         return self.name
 
 
-
 class SentDrip(models.Model):
     """
     Keeps a record of all sent drips.
     """
     date = models.DateTimeField(auto_now_add=True)
 
-    drip = models.ForeignKey('drip.Drip', related_name='sent_drips')
-    user = models.ForeignKey(
-        getattr(
-            settings, 'ZEPHYRUS_AUTORESPONDER_MODEL', 
-            getattr(settings, 'AUTH_USER_MODEL', 'auth.User')), 
-        related_name='sent_drips')
+    drip = models.ForeignKey(Drip, related_name='sent_drips', on_delete=models.CASCADE)
+    user = models.ForeignKey(getattr(settings, 'AUTH_USER_MODEL', 'auth.User'), related_name='sent_drips', on_delete=models.CASCADE)
 
     subject = models.TextField()
     body = models.TextField()
-    from_email = models.EmailField(
-        null=True, default=None # For south so that it can migrate existing rows.
-    )
-    from_email_name = models.CharField(max_length=150,
-        null=True, default=None # For south so that it can migrate existing rows.
-    )
+    from_email = models.EmailField(null=True, default=None)
+    from_email_name = models.CharField(max_length=150, null=True, default=None)
+    reply_to = models.EmailField(null=True, default=None)
 
 
 
@@ -100,7 +92,7 @@ class QuerySetRule(models.Model):
     date = models.DateTimeField(auto_now_add=True)
     lastchanged = models.DateTimeField(auto_now=True)
 
-    drip = models.ForeignKey(Drip, related_name='queryset_rules')
+    drip = models.ForeignKey(Drip, related_name='queryset_rules', on_delete=models.CASCADE)
 
     method_type = models.CharField(max_length=12, default='filter', choices=METHOD_TYPES)
     field_name = models.CharField(max_length=128, verbose_name='Field name of User')
@@ -134,25 +126,30 @@ class QuerySetRule(models.Model):
             qs = qs.annotate(**{field_name: models.Count(agg, distinct=True)})
         return qs
 
-    def filter_kwargs(self, qs, now=datetime.now):
+    def parse_duration(self, value):
+        value = value.lstrip('+')
+        duration = parse_duration(value)
+        if duration is None:
+            if not ',' in value:
+                # django parse_duration requires 'x days, S'
+                duration = parse_duration(value + ', 0')
+                if duration is None:
+                    raise ValueError("Could not parse %s" % value)
+        return duration
+
+    def filter_kwargs(self, qs, now=timezone.now):
         # Support Count() as m2m__count
         field_name = self.annotated_field_name
         field_name = '__'.join([field_name, self.lookup_type])
         field_value = self.field_value
 
         # set time deltas and dates
-        if self.field_value.startswith('now-'):
-            field_value = self.field_value.replace('now-', '')
-            field_value = now() - djangotimedelta.parse(field_value)
-        elif self.field_value.startswith('now+'):
-            field_value = self.field_value.replace('now+', '')
-            field_value = now() + djangotimedelta.parse(field_value)
-        elif self.field_value.startswith('today-'):
-            field_value = self.field_value.replace('today-', '')
-            field_value = now().date() - djangotimedelta.parse(field_value)
-        elif self.field_value.startswith('today+'):
-            field_value = self.field_value.replace('today+', '')
-            field_value = now().date() + djangotimedelta.parse(field_value)
+        if self.field_value.startswith('now'):
+            field_value = self.field_value.replace('now', '')
+            field_value = now() + self.parse_duration(field_value)
+        elif self.field_value.startswith('today'):
+            field_value = self.field_value.replace('today', '')
+            field_value = now().date() + self.parse_duration(field_value)
 
         # F expressions
         if self.field_value.startswith('F_'):
@@ -169,7 +166,7 @@ class QuerySetRule(models.Model):
 
         return kwargs
 
-    def apply(self, qs, now=datetime.now):
+    def apply(self, qs, now=timezone.now):
 
         kwargs = self.filter_kwargs(qs, now)
         qs = self.apply_any_annotation(qs)

@@ -1,6 +1,11 @@
 import operator
 import functools
 
+try:
+    from importlib import import_module
+except ImportError:
+    from django.utils.importlib import import_module
+
 from django.conf import settings
 from django.db.models import Q
 from django.template import Context, Template
@@ -10,19 +15,9 @@ from django.utils.html import strip_tags
 from drip.models import SentDrip
 from drip.utils import get_user_model
 
-try:
-    from django.utils.timezone import now as conditional_now
-except ImportError:
-    from datetime import datetime
-    conditional_now = datetime.now
+from django.utils.timezone import now as conditional_now
 
-from Iuppiter.DjangoUtil import DJANGO_VERSION
 
-if DJANGO_VERSION >= 10900: # django >= 1.11
-    from django.utils.module_loading import import_module
-else:
-    from django.utils.importlib import import_module
-    
 import logging
 
 
@@ -69,13 +64,21 @@ class DripMessage(object):
     @property
     def subject(self):
         if not self._subject:
-            self._subject = Template(self.drip_base.subject_template).render(self.context)
+            self._subject = Template(
+                self.drip_base.subject_template or ''
+            ).render(self.context)
         return self._subject
+
+    @property
+    def reply_to(self):
+        return self.drip_base.reply_to
 
     @property
     def body(self):
         if not self._body:
-            self._body = Template(self.drip_base.body_template).render(self.context)
+            self._body = Template(
+                self.drip_base.body_template or ''
+            ).render(self.context)
         return self._body
 
     @property
@@ -94,6 +97,9 @@ class DripMessage(object):
 
             self._message = EmailMultiAlternatives(
                 self.subject, self.plain, from_, [self.user.email])
+
+            if self.reply_to:
+                self._message.reply_to=[self.reply_to]
 
             # check if there are html tags in the rendered template
             if len(self.plain) != len(self.body):
@@ -114,6 +120,7 @@ class DripBase(object):
     body_template = None
     from_email = None
     from_email_name = None
+    reply_to = None
 
     def __init__(self, drip_model, *args, **kwargs):
         self.drip_model = drip_model
@@ -121,6 +128,7 @@ class DripBase(object):
         self.name = kwargs.pop('name', self.name)
         self.from_email = kwargs.pop('from_email', self.from_email)
         self.from_email_name = kwargs.pop('from_email_name', self.from_email_name)
+        self.reply_to = kwargs.pop('reply_to', self.reply_to)
         self.subject_template = kwargs.pop('subject_template', self.subject_template)
         self.body_template = kwargs.pop('body_template', self.body_template)
 
@@ -165,12 +173,12 @@ class DripBase(object):
         First collect all filter/exclude kwargs and apply any annotations.
         Then apply all filters at once, and all excludes at once.
         """
-        logging.info("Use objects: %s" % qs)
         clauses = {
             'filter': [],
             'exclude': []}
 
         for rule in self.drip_model.queryset_rules.all():
+
             clause = clauses.get(rule.method_type, clauses['filter'])
 
             kwargs = rule.filter_kwargs(qs, now=self.now)
@@ -180,8 +188,8 @@ class DripBase(object):
 
         if clauses['exclude']:
             qs = qs.exclude(functools.reduce(operator.or_, clauses['exclude']))
-        logging.info("Clauses: %s" % clauses)
         qs = qs.filter(*clauses['filter'])
+
         return qs
 
     ##################
@@ -243,13 +251,16 @@ class DripBase(object):
                         user=user,
                         from_email=self.from_email,
                         from_email_name=self.from_email_name,
+                        reply_to=self.reply_to,
                         subject=message_instance.subject,
                         body=message_instance.body
                     )
                     count += 1
             except Exception as e:
-                logging.error("Failed to send drip %s to user %s: %s" % (self.drip_model.id, user, e))
-        logging.info("Total send: %d emails." %count)
+                logging.exception(
+                    "Failed to send drip %s to user %s: %s" % (
+                        self.drip_model.id, user, e))
+
         return count
 
 

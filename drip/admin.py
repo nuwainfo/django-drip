@@ -3,10 +3,12 @@ import json
 
 from django import forms
 from django.contrib import admin
+from django.conf.urls import url
 
 from drip.models import Drip, SentDrip, QuerySetRule
 from drip.drips import configured_message_classes, message_class_for
 from drip.utils import get_user_model
+
 
 class QuerySetRuleInline(admin.TabularInline):
     model = QuerySetRule
@@ -20,13 +22,13 @@ class DripForm(forms.ModelForm):
         model = Drip
         exclude = []
 
-
 class DripAdmin(admin.ModelAdmin):
     list_display = ('name', 'enabled', 'message_class')
     inlines = [
         QuerySetRuleInline,
     ]
     form = DripForm
+    save_as = True
 
     av = lambda self, view: self.admin_site.admin_view(view)
     def timeline(self, request, drip_id, into_past, into_future):
@@ -86,9 +88,8 @@ class DripAdmin(admin.ModelAdmin):
             request, object_id, extra_context=self.build_extra_context(extra_context))
 
     def get_urls(self):
-        from django.conf.urls import patterns, url
         urls = super(DripAdmin, self).get_urls()
-        my_urls = patterns('',
+        my_urls = [
             url(
                 r'^(?P<drip_id>[\d]+)/timeline/(?P<into_past>[\d]+)/(?P<into_future>[\d]+)/$',
                 self.av(self.timeline),
@@ -99,7 +100,7 @@ class DripAdmin(admin.ModelAdmin):
                 self.av(self.view_drip_email),
                 name='view_drip_email'
             )
-        )
+        ]
         return my_urls + urls
 admin.site.register(Drip, DripAdmin)
 
