@@ -4,6 +4,7 @@ import json
 from django import forms
 from django.contrib import admin
 from django.conf.urls import url
+from django.utils.html import SafeText
 
 from drip.models import Drip, SentDrip, QuerySetRule
 from drip.drips import configured_message_classes, message_class_for
@@ -104,8 +105,20 @@ class DripAdmin(admin.ModelAdmin):
         return my_urls + urls
 admin.site.register(Drip, DripAdmin)
 
-
+# class SentDripAdmin(admin.ModelAdmin):
+    # list_display = [f.name for f in SentDrip._meta.fields]
+    # ordering = ['-id']
+    
 class SentDripAdmin(admin.ModelAdmin):
-    list_display = [f.name for f in SentDrip._meta.fields]
+    list_display = ['date', 'objURL', 'drip', 'subject', 'body', 'from_email', 'from_email_name', 'reply_to']
+    exclude = ('objId',)
     ordering = ['-id']
+    readonly_fields = ("objURL",)
+    
+    def objURL(self, obj):
+        data = "<a href='%s'>%s</a>" % (obj.getObjUrl(), obj.getObj())
+        return SafeText(data)
+        
+    objURL.short_description = "Object URL"
+    
 admin.site.register(SentDrip, SentDripAdmin)

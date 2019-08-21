@@ -223,8 +223,8 @@ class DripBase(object):
         target_user_ids = self.get_queryset().values_list('id', flat=True)
         exclude_user_ids = SentDrip.objects.filter(date__lt=conditional_now(),
                                                    drip=self.drip_model,
-                                                   user__id__in=target_user_ids)\
-                                           .values_list('user_id', flat=True)
+                                                   objId__in=target_user_ids)\
+                                           .values_list('objId', flat=True)
         self._queryset = self.get_queryset().exclude(id__in=exclude_user_ids)
 
     def send(self):
@@ -248,7 +248,7 @@ class DripBase(object):
                 if result:
                     SentDrip.objects.create(
                         drip=self.drip_model,
-                        user=user,
+                        objId=user.id,
                         from_email=self.from_email,
                         from_email_name=self.from_email_name,
                         reply_to=self.reply_to,

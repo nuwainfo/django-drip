@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.conf import settings
 from django.utils.dateparse import parse_duration
 from django.utils import timezone
+from django.urls import reverse
 
 from drip.utils import get_user_model
 
@@ -56,13 +57,26 @@ class SentDrip(models.Model):
     date = models.DateTimeField(auto_now_add=True)
 
     drip = models.ForeignKey(Drip, related_name='sent_drips', on_delete=models.CASCADE)
-    user = models.ForeignKey(getattr(settings, 'AUTH_USER_MODEL', 'auth.User'), related_name='sent_drips', on_delete=models.CASCADE)
+    objId = models.IntegerField('Object ID')
 
     subject = models.TextField()
     body = models.TextField()
     from_email = models.EmailField(null=True, default=None)
     from_email_name = models.CharField(max_length=150, null=True, default=None)
     reply_to = models.EmailField(null=True, default=None)
+    
+    def getObjUrl(self):
+        ModelClass = get_user_model()
+        return reverse(
+            "admin:%s_%s_change" % (
+            ModelClass._meta.app_label, 
+            ModelClass.__name__.lower()), 
+            args=[self.objId]
+        )
+        
+    def getObj(self):
+        ModelClass = get_user_model()
+        return ModelClass.objects.get(id=self.objId)
 
 
 
