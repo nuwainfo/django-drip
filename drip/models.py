@@ -46,7 +46,7 @@ class Drip(models.Model):
                         body_template=self.body_html_template if self.body_html_template else None)
         return drip
 
-    def __unicode__(self):
+    def __str__(self):
         return self.name
 
 
@@ -64,6 +64,9 @@ class SentDrip(models.Model):
     from_email = models.EmailField(null=True, default=None)
     from_email_name = models.CharField(max_length=150, null=True, default=None)
     reply_to = models.EmailField(null=True, default=None)
+    
+    def __str__(self):
+        return "%s drip record (%s)" % (self.drip.name, self.date)
     
     def getObjUrl(self):
         ModelClass = get_user_model()
@@ -115,6 +118,9 @@ class QuerySetRule(models.Model):
     field_value = models.CharField(max_length=255,
         help_text=('Can be anything from a number, to a string. Or, do ' +
                    '`now-7 days` or `today+3 days` for fancy timedelta.'))
+                   
+    def __str__(self):
+        return "%s drip rule" % (self.drip.name,)
 
     def clean(self):
         User = get_user_model()
