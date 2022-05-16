@@ -7,7 +7,7 @@ import os
 import sys
 
 
-name = 'django-drip-Zephyrus5'
+name = 'django-drip'
 package = 'drip'
 description = 'Simple drip campaigns for Django.'
 url = 'https://github.com/zapier/django-drip'
