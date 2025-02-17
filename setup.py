@@ -14,7 +14,7 @@ url = 'https://github.com/zapier/django-drip'
 author = 'Bryan Helmig'
 author_email = 'bryan@zapier.com'
 license = 'MIT'
-install_requires = ['Django',]
+install_requires = ['Django', ]
 
 
 def get_version(package):
@@ -29,9 +29,10 @@ def get_packages(package):
     """
     Return root package and all sub-packages.
     """
-    return [dirpath
-            for dirpath, dirnames, filenames in os.walk(package)
-            if os.path.exists(os.path.join(dirpath, '__init__.py'))]
+    return [
+        dirpath for dirpath, dirnames, filenames in os.walk(package)
+        if os.path.exists(os.path.join(dirpath, '__init__.py'))
+    ]
 
 
 def get_package_data(package):
@@ -39,14 +40,15 @@ def get_package_data(package):
     Return all files under the root package, that are not in a
     package themselves.
     """
-    walk = [(dirpath.replace(package + os.sep, '', 1), filenames)
-            for dirpath, dirnames, filenames in os.walk(package)
-            if not os.path.exists(os.path.join(dirpath, '__init__.py'))]
+    walk = [
+        (dirpath.replace(package + os.sep, '', 1), filenames)
+        for dirpath, dirnames, filenames in os.walk(package)
+        if not os.path.exists(os.path.join(dirpath, '__init__.py'))
+    ]
 
     filepaths = []
     for base, filenames in walk:
-        filepaths.extend([os.path.join(base, filename)
-                          for filename in filenames])
+        filepaths.extend([os.path.join(base, filename) for filename in filenames])
     return {package: filepaths}
 
 

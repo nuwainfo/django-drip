@@ -1,16 +1,12 @@
 import operator
 import functools
 
-try:
-    from importlib import import_module
-except ImportError:
-    from django.utils.importlib import import_module
-
 from django.conf import settings
 from django.db.models import Q
 from django.template import Context, Template
 from django.core.mail import EmailMultiAlternatives
 from django.utils.html import strip_tags
+from importlib import import_module
 
 from drip.models import SentDrip
 from drip.utils import get_user_model
@@ -91,15 +87,14 @@ class DripMessage(object):
     def message(self):
         if not self._message:
             if self.drip_base.from_email_name:
-                from_ = "%s <%s>" % (self.drip_base.from_email_name, self.drip_base.from_email)
+                from_ = f"{self.drip_base.from_email_name} <{self.drip_base.from_email}>"
             else:
                 from_ = self.drip_base.from_email
 
-            self._message = EmailMultiAlternatives(
-                self.subject, self.plain, from_, [self.user.email])
+            self._message = EmailMultiAlternatives(self.subject, self.plain, from_, [self.user.email])
 
             if self.reply_to:
-                self._message.reply_to=[self.reply_to]
+                self._message.reply_to = [self.reply_to]
 
             # check if there are html tags in the rendered template
             if len(self.plain) != len(self.body):
@@ -137,7 +132,6 @@ class DripBase(object):
 
         self.now_shift_kwargs = kwargs.get('now_shift_kwargs', {})
 
-
     #########################
     ### DATE MANIPULATION ###
     #########################
@@ -162,9 +156,7 @@ class DripBase(object):
         """
         walked_range = []
         for shift in range(-into_past, into_future):
-            kwargs = dict(drip_model=self.drip_model,
-                          name=self.name,
-                          now_shift_kwargs={'days': shift})
+            kwargs = dict(drip_model=self.drip_model, name=self.name, now_shift_kwargs={'days': shift})
             walked_range.append(self.__class__(**kwargs))
         return walked_range
 
@@ -200,8 +192,7 @@ class DripBase(object):
         try:
             return self._queryset
         except AttributeError:
-            self._queryset = self.apply_queryset_rules(self.queryset())\
-                                 .distinct()
+            self._queryset = self.apply_queryset_rules(self.queryset()).distinct()
             return self._queryset
 
     def run(self):
@@ -221,10 +212,9 @@ class DripBase(object):
         Do an exclude for all Users who have a SentDrip already.
         """
         target_user_ids = self.get_queryset().values_list('id', flat=True)
-        exclude_user_ids = SentDrip.objects.filter(date__lt=conditional_now(),
-                                                   drip=self.drip_model,
-                                                   objId__in=target_user_ids)\
-                                           .values_list('objId', flat=True)
+        exclude_user_ids = SentDrip.objects.filter(
+            date__lt=conditional_now(), drip=self.drip_model, objId__in=target_user_ids
+        ).values_list('objId', flat=True)
         self._queryset = self.get_queryset().exclude(id__in=exclude_user_ids)
 
     def send(self):
@@ -257,12 +247,9 @@ class DripBase(object):
                     )
                     count += 1
             except Exception as e:
-                logging.exception(
-                    "Failed to send drip %s to user %s: %s" % (
-                        self.drip_model.id, user, e))
+                logging.exception(f"Failed to send drip {self.drip_model.id} to user {user}: {e}")
 
         return count
-
 
     ####################
     ### USER DEFINED ###
